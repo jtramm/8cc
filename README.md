@@ -10,19 +10,18 @@ You can see its code both as an implementation of the C language
 and as an example of what this compiler is able to compile.
 
 8cc's source code is carefully written to be as concise and easy-to-read
-as possible, so that the source code is eventually be a good study
-material to learn about various techniques used in compilers.
+as possible, so that the source code becomes good study material
+to learn about various techniques used in compilers.
 You may find the lexer, the preprocessor and the parser are
 already useful to learn how C source code is processed at each stage.
 
 It's not an optimizing compiler.
-Generated code is usually 2x or more slower than GCC's.
+Generated code is usually 2x or more slower than GCC.
 I plan to implement a reasonable level of optimization in the future.
 
-8cc supports x86-64 Linux only for now.
-I have no plan to make it portable until
+8cc supports x86-64 Linux only. I have no plan to make it portable until
 I fix all known miscompilations and implement an optimization pass.
-As of 2014, I'm using Ubuntu 14 as my development platform.
+As of 2015, I'm using Ubuntu 14 as my development platform.
 It should work on other x86-64 Linux distributions though.
 
 Note: Do not have high expectations on this compiler.
@@ -61,6 +60,8 @@ Links for C compiler development
 Besides popular books about compiler, such as the Dragon Book,
 I found the following books/documents are very useful
 to develop a C compiler.
+Note that the standard draft versions are very close to the ratified versions.
+You can practically use them as the standard documents.
 
 -   LCC: A Retargetable C Compiler: Design and Implementation
     http://www.amazon.com/dp/0805316701,

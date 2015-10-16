@@ -1,5 +1,4 @@
-// Copyright 2014 Rui Ueyama <rui314@gmail.com>
-// This program is free software licensed under the MIT license.
+// Copyright 2014 Rui Ueyama. Released under the MIT license.
 
 // Sets are containers that store unique strings.
 //
@@ -16,7 +15,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include "set.h"
+#include "8cc.h"
 
 Set *set_add(Set *s, char *v) {
     Set *r = malloc(sizeof(Set));

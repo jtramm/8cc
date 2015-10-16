@@ -1,8 +1,5 @@
-// Copyright 2012 Rui Ueyama <rui314@gmail.com>
-// This program is free software licensed under the MIT license.
+// Copyright 2012 Rui Ueyama. Released under the MIT license.
 
-#include <assert.h>
-#include <inttypes.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,7 +49,7 @@ static void pop_function(void *ignore) {
 #define SAVE
 #endif
 
-static char *get_caller_list(void) {
+static char *get_caller_list() {
     Buffer *b = make_buffer();
     for (int i = 0; i < vec_len(functions); i++) {
         if (i > 0)
@@ -67,7 +64,7 @@ void set_output_file(FILE *fp) {
     outputfp = fp;
 }
 
-void close_output_file(void) {
+void close_output_file() {
     fclose(outputfp);
 }
 
@@ -232,6 +229,24 @@ static void emit_gload(Type *ty, char *label, int off) {
     char *inst = get_load_inst(ty);
     emit("%s %s+%d(#rip), #rax", inst, label, off);
     maybe_emit_bitshift_load(ty);
+}
+
+static void emit_intcast(Type *ty) {
+    switch(ty->kind) {
+    case KIND_BOOL:
+    case KIND_CHAR:
+        ty->usig ? emit("movzbq #al, #rax") : emit("movsbq #al, #rax");
+        return;
+    case KIND_SHORT:
+        ty->usig ? emit("movzwq #ax, #rax") : emit("movswq #ax, #rax");
+        return;
+    case KIND_INT:
+        ty->usig ? emit("mov #eax, #eax") : emit("cltq");
+        return;
+    case KIND_LONG:
+    case KIND_LLONG:
+        return;
+    }
 }
 
 static void emit_toint(Type *ty) {
@@ -512,11 +527,13 @@ static void emit_load_convert(Type *to, Type *from) {
         emit("cvtpd2ps #xmm0, #xmm0");
     else if (to->kind == KIND_BOOL)
         emit_to_bool(from);
+    else if (is_inttype(from) && is_inttype(to))
+        emit_intcast(from);
     else if (is_inttype(to))
         emit_toint(from);
 }
 
-static void emit_ret(void) {
+static void emit_ret() {
     SAVE;
     emit("leave");
     emit("ret");
@@ -737,6 +754,17 @@ static void emit_literal(Node *node) {
         emit("movsd %s(#rip), #xmm0", node->flabel);
         break;
     }
+    case KIND_ARRAY: {
+        if (!node->slabel) {
+            node->slabel = make_label();
+            emit_noindent(".data");
+            emit_label(node->slabel);
+            emit(".string \"%s\"", quote_cstring_len(node->sval, node->ty->size));
+            emit_noindent(".text");
+        }
+        emit("lea %s(#rip), #rax", node->slabel);
+        break;
+    }
     default:
         error("internal error");
     }
@@ -821,18 +849,6 @@ static void maybe_print_source_loc(Node *node) {
         maybe_print_source_line(file, node->sourceLoc->line);
     }
     last_loc = loc;
-}
-
-static void emit_literal_string(Node *node) {
-    SAVE;
-    if (!node->slabel) {
-        node->slabel = make_label();
-        emit_noindent(".data");
-        emit_label(node->slabel);
-        emit(".string \"%s\"", quote_cstring(node->sval));
-        emit_noindent(".text");
-    }
-    emit("lea %s(#rip), #rax", node->slabel);
 }
 
 static void emit_lvar(Node *node) {
@@ -1190,7 +1206,6 @@ static void emit_expr(Node *node) {
     maybe_print_source_loc(node);
     switch (node->kind) {
     case AST_LITERAL: emit_literal(node); return;
-    case AST_STRING:  emit_literal_string(node); return;
     case AST_LVAR:    emit_lvar(node); return;
     case AST_GVAR:    emit_gvar(node); return;
     case AST_FUNCDESG: return;
@@ -1292,16 +1307,16 @@ static void emit_data_primtype(Type *ty, Node *val, int depth) {
         emit(".quad %ld", *(uint64_t *)&val->fval);
         break;
     case KIND_BOOL:
-        emit(".byte %d", !!eval_intexpr(val));
+        emit(".byte %d", !!eval_intexpr(val, NULL));
         break;
     case KIND_CHAR:
-        emit(".byte %d", eval_intexpr(val));
+        emit(".byte %d", eval_intexpr(val, NULL));
         break;
     case KIND_SHORT:
-        emit(".short %d", eval_intexpr(val));
+        emit(".short %d", eval_intexpr(val, NULL));
         break;
     case KIND_INT:
-        emit(".long %d", eval_intexpr(val));
+        emit(".long %d", eval_intexpr(val, NULL));
         break;
     case KIND_LONG:
     case KIND_LLONG:
@@ -1316,7 +1331,19 @@ static void emit_data_primtype(Type *ty, Node *val, int depth) {
         } else if (val->kind == AST_GVAR) {
             emit(".quad %s", val->glabel);
         } else {
-            emit(".quad %u", eval_intexpr(val));
+            Node *base = NULL;
+            int v = eval_intexpr(val, &base);
+            if (base == NULL) {
+                emit(".quad %u", v);
+                break;
+            }
+            Type *ty = base->ty;
+            if (base->kind == AST_CONV || base->kind == AST_ADDR)
+                base = base->operand;
+            if (base->kind != AST_GVAR)
+                error("global variable expected, but got %s", node2s(base));
+            assert(ty->ptr);
+            emit(".quad %s+%u", base->glabel, v * ty->ptr->size);
         }
         break;
     default:
@@ -1332,7 +1359,7 @@ static void do_emit_data(Vector *inits, int size, int off, int depth) {
         emit_padding(node, off);
         if (node->totype->bitsize > 0) {
             assert(node->totype->bitoff == 0);
-            long data = eval_intexpr(v);
+            long data = eval_intexpr(v, NULL);
             Type *totype = node->totype;
             for (i++ ; i < vec_len(inits); i++) {
                 node = vec_get(inits, i);
@@ -1341,7 +1368,7 @@ static void do_emit_data(Vector *inits, int size, int off, int depth) {
                 }
                 v = node->initval;
                 totype = node->totype;
-                data |= ((((long)1 << totype->bitsize) - 1) & eval_intexpr(v)) << totype->bitoff;
+                data |= ((((long)1 << totype->bitsize) - 1) & eval_intexpr(v, NULL)) << totype->bitoff;
             }
             emit_data_primtype(totype, &(Node){ AST_LITERAL, totype, .ival = data }, depth);
             off += totype->size;
@@ -1390,7 +1417,7 @@ static void emit_global_var(Node *v) {
         emit_bss(v);
 }
 
-static int emit_regsave_area(void) {
+static int emit_regsave_area() {
     emit("sub $%d, #rsp", REGAREA_SIZE);
     emit("mov #rdi, (#rsp)");
     emit("mov #rsi, 8(#rsp)");
